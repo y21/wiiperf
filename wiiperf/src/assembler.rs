@@ -7,8 +7,6 @@ pub fn branch(offset: isize, link: bool, absolute: bool) -> u32 {
 
     let mut number = (offset >> 2) as u32 & 0x00FF_FFFF;
 
-    wiistd::println!("\n{offset:032b}\n{number:032b}\n");
-
     // Space for AA and LK
     number <<= 2;
     number |= (absolute as u32) << 1;

@@ -111,3 +111,22 @@ pub fn decrementer() -> Decrementer {
 pub fn set_decrementer(value: u32) {
     unsafe { asm!("mtdec {value}", value = in(reg) value) };
 }
+
+const CACHE_SIZE: usize = 32;
+pub fn flush_dcache(addr: *const (), size: usize) {
+    for offset in (0..size).step_by(CACHE_SIZE) {
+        unsafe { asm!("dcbf {}, {}", in(reg) addr, in(reg) offset) };
+    }
+}
+
+pub fn invalidate_icache(addr: *const (), size: usize) {
+    for offset in (0..size).step_by(CACHE_SIZE) {
+        unsafe { asm!("icbi {}, {}", in(reg) addr, in(reg) offset) };
+    }
+}
+
+pub fn store_dcache(addr: *const (), size: usize) {
+    for offset in (0..size).step_by(CACHE_SIZE) {
+        unsafe { asm!("dcbst {}, {}", in(reg) addr, in(reg) offset) };
+    }
+}

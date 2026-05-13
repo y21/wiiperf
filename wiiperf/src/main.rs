@@ -73,7 +73,7 @@ extern "C" fn __handle_interrupt() {
             "
             lis 5, STUB_DATA@h
             ori 5, 5, STUB_DATA@l
-            # TODO: should we invalidate r5 from the Dcache?
+            dcbi 0, 5 # we're in virtual mode here, make sure we pick up what we wrote earlier in real mode
 
             lwz 3, 0(5) # srr0, used in EXIT_STUB
             lwz 4, 4(5) # srr1, used in EXIT_STUB
@@ -144,13 +144,18 @@ fn main() {
         // Branch to 0x009004
         let offset = (DEC_EXC_VIRT.add(1) as isize) - (&raw const EXIT_STUB[3] as isize);
         EXIT_STUB[3] = assembler::branch(offset, false, false);
+
+        #[expect(static_mut_refs, reason = "short lived shared references")]
+        {
+            ppc::flush_dcache(EXIT_STUB.as_ptr().cast(), EXIT_STUB.len() * 4);
+            ppc::invalidate_icache(EXIT_STUB.as_ptr().cast(), EXIT_STUB.len() * 4);
+        }
     }
-    // TODO: flush & invalidate EXIT_STUB!
 
     // Register the exception handler.
     let dec_eh_offset = (interrupt_stub as *const () as isize) - DEC_EXC_VIRT.addr() as isize;
     unsafe { DEC_EXC_VIRT.write_volatile(assembler::branch(dec_eh_offset, false, false)) };
-    // TODO: flush & invalidate EXIT_STUB!
+    ppc::flush_dcache(DEC_EXC_VIRT.cast(), 4);
 
     // bunch of initialization here...
     ppc::set_decrementer(1_000_000_000);
