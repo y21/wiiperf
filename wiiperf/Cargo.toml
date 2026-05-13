@@ -1,0 +1,7 @@
+[package]
+name = "wiiperf"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wiistd= { path="../wiistd" }
