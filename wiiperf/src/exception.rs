@@ -1,64 +1,27 @@
-#![no_std]
-#![no_main]
-
 use core::{
     arch::{asm, naked_asm},
-    mem::{MaybeUninit, offset_of},
-    panic::PanicInfo,
+    mem::offset_of,
     ptr,
 };
 
-use wiistd::{ppc, println};
+use wiistd::ppc;
 
-mod assembler;
-mod profiler;
-
-const STACK_SIZE: usize = 0x400000;
-
-#[repr(transparent)]
-struct SyncPtr<T>(*const T);
-unsafe impl<T> Sync for SyncPtr<T> {}
-
-#[used]
-#[unsafe(link_section = ".bss")]
-static _STACK: [MaybeUninit<u8>; STACK_SIZE] = [MaybeUninit::uninit(); STACK_SIZE];
-#[unsafe(no_mangle)]
-static _STACK_END: SyncPtr<MaybeUninit<u8>> = unsafe { SyncPtr(_STACK.as_ptr().add(STACK_SIZE)) };
-
-#[panic_handler]
-fn panic_handler(panic: &PanicInfo) -> ! {
-    println!("A panic occurred! {panic}");
-    loop {}
-}
-
-#[unsafe(no_mangle)]
-#[unsafe(naked)]
-extern "C" fn _start() {
-    naked_asm!(
-        "
-        lis 1, 0x8090
-
-        bl main
-        loop_forever:
-            b loop_forever
-    ",
-    );
-}
+use crate::{assembler, profiler};
 
 #[repr(C)]
-struct StubData {
-    srr0: u32,
-    srr1: u32,
-    entry_msr: u32,
-    gprs: [u32; 32],
-    lr: u32,
-    ctr: u32,
-    cr: u32,
-    xer: u32,
+pub(crate) struct StubData {
+    pub srr0: u32,
+    pub srr1: u32,
+    pub entry_msr: u32,
+    pub gprs: [u32; 32],
+    pub lr: u32,
+    pub ctr: u32,
+    pub cr: u32,
+    pub xer: u32,
 }
 
 #[unsafe(no_mangle)]
-static mut STUB_DATA: StubData = StubData {
+pub(crate) static mut STUB_DATA: StubData = StubData {
     srr0: 0,
     srr1: 0,
     entry_msr: 0,
@@ -187,8 +150,8 @@ const DEC_EXC_VIRT: *mut u32 = ptr::with_exposed_provenance_mut(0x80000900);
 #[unsafe(no_mangle)]
 static mut EXIT_STUB: [u32; 8] = [0; 8];
 
-#[unsafe(no_mangle)]
-fn main() {
+/// Installs the exception handler.
+pub fn install() {
     unsafe {
         // Series of instructions to restore original SRR0/1. The interrupt exit puts them in SPRG0/1
         // and in order to avoid cloberring GPRs, we do some juggling around GPR<->SPRs.
@@ -219,5 +182,4 @@ fn main() {
     ppc::flush_dcache(DEC_EXC_VIRT.cast(), 4);
 
     ppc::set_decrementer(DECR_FREQ);
-    unsafe { ppc::enable_interrupts() };
 }

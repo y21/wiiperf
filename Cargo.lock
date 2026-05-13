@@ -17,5 +17,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "wiiperf-example"
+version = "0.1.0"
+dependencies = [
+ "wiiperf",
+ "wiistd",
+]
+
+[[package]]
 name = "wiistd"
 version = "0.1.0"

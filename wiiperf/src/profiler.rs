@@ -3,7 +3,7 @@ use core::{cell::RefCell, cmp::Reverse, ptr};
 use arrayvec::ArrayVec;
 use wiistd::{ppc::InterruptLock, println, util::ToUsize};
 
-use crate::{STUB_DATA, assembler};
+use crate::{assembler, exception::STUB_DATA};
 
 const SAMPLE_COUNT: usize = 1024;
 
