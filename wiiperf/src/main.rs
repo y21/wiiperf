@@ -218,7 +218,6 @@ fn main() {
     unsafe { DEC_EXC_VIRT.write_volatile(assembler::branch(dec_eh_offset, false, false)) };
     ppc::flush_dcache(DEC_EXC_VIRT.cast(), 4);
 
-    // bunch of initialization here...
     ppc::set_decrementer(DECR_FREQ);
     unsafe { ppc::enable_interrupts() };
 }
