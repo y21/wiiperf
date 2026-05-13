@@ -1,4 +1,4 @@
-use core::arch::asm;
+use core::{arch::asm, cell::RefCell};
 
 const VIRTUAL_MASK: usize = 0x8000_0000;
 
@@ -13,7 +13,7 @@ pub fn physical_to_virtual(addr: usize) -> usize {
 pub fn without_interrupts(fun: impl FnOnce()) {
     let had_interrupts = disable_interrupts();
     fun();
-    set_interrupts(had_interrupts);
+    unsafe { set_interrupts(had_interrupts) };
 }
 
 #[derive(Copy, Clone)]
@@ -69,6 +69,20 @@ impl Msr {
 }
 
 #[inline]
+pub fn srr0() -> u32 {
+    let mut srr0: u32;
+    unsafe { asm!("mfsrr0 {srr0}", srr0 = out(reg) srr0) };
+    srr0
+}
+
+#[inline]
+pub fn srr1() -> u32 {
+    let mut srr1: u32;
+    unsafe { asm!("mfsrr1 {srr1}", srr1 = out(reg) srr1) };
+    srr1
+}
+
+#[inline]
 pub fn msr() -> Msr {
     let mut msr: u32;
     unsafe { asm!("mfmsr {msr}", msr = out(reg) msr) };
@@ -88,12 +102,12 @@ pub fn disable_interrupts() -> bool {
 }
 
 #[inline]
-pub fn enable_interrupts() {
+pub unsafe fn enable_interrupts() {
     unsafe { set_msr(msr().enable_interrupts()) };
 }
 
 #[inline]
-pub fn set_interrupts(enabled: bool) {
+pub unsafe fn set_interrupts(enabled: bool) {
     unsafe { set_msr(msr().set_interrupts(enabled)) }
 }
 
@@ -128,5 +142,51 @@ pub fn invalidate_icache(addr: *const (), size: usize) {
 pub fn store_dcache(addr: *const (), size: usize) {
     for offset in (0..size).step_by(CACHE_SIZE) {
         unsafe { asm!("dcbst {}, {}", in(reg) addr, in(reg) offset) };
+    }
+}
+
+#[repr(transparent)]
+pub struct InterruptLock<T>(T);
+
+unsafe impl<T> Sync for InterruptLock<T> {}
+
+impl<T> InterruptLock<T> {
+    pub const fn new(value: T) -> Self {
+        Self(value)
+    }
+
+    fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        let msr = msr();
+        assert!(!msr.interrupts());
+
+        f(&self.0)
+    }
+
+    pub fn lock(&self) -> InterruptLockGuard<'_, T> {
+        let msr = msr();
+        assert!(!msr.interrupts());
+
+        InterruptLockGuard { lock: self }
+    }
+}
+
+impl<T> InterruptLock<RefCell<T>> {
+    pub fn with_cell_mut<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+        self.with(|cell| {
+            let mut borrow = cell.borrow_mut();
+            f(&mut *borrow)
+        })
+    }
+}
+
+pub struct InterruptLockGuard<'a, T> {
+    lock: &'a InterruptLock<T>,
+}
+
+impl<T> core::ops::Deref for InterruptLockGuard<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.lock.0
     }
 }

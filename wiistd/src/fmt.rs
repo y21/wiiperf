@@ -1,7 +1,7 @@
 use core::fmt::{self, Write};
 
 pub struct FmtBuffer {
-    pub buf: [u8; 256],
+    pub buf: [u8; 1024],
     pub len: usize,
 }
 
@@ -17,9 +17,10 @@ impl Write for FmtBuffer {
     }
 }
 
+#[track_caller]
 pub fn report_arguments(args: fmt::Arguments<'_>) {
     let mut buf = FmtBuffer {
-        buf: [0u8; 256],
+        buf: [0u8; 1024],
         len: 0,
     };
     buf.write_fmt(args).unwrap();
