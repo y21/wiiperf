@@ -1,4 +1,6 @@
-use crate::{exception, profiler};
+#![no_std]
+
+use wiiperf::{exception, profiler};
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wiiperf_install() {

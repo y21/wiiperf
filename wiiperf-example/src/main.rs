@@ -1,15 +1,9 @@
 #![no_std]
 #![no_main]
 
-use core::{arch::naked_asm, panic::PanicInfo};
+use core::arch::naked_asm;
 
-use wiistd::{ppc, println};
-
-#[panic_handler]
-fn panic_handler(panic: &PanicInfo) -> ! {
-    println!("A panic occurred! {panic}");
-    loop {}
-}
+use wiistd::ppc;
 
 #[unsafe(no_mangle)]
 #[unsafe(naked)]
