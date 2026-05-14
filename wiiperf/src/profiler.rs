@@ -3,7 +3,7 @@ use core::{cell::RefCell, cmp::Reverse, ptr};
 use arrayvec::ArrayVec;
 use wiistd::{ppc::InterruptLock, println, util::ToUsize};
 
-use crate::{assembler, exception::STUB_DATA};
+use crate::assembler;
 
 const SAMPLE_COUNT: usize = 1024;
 
@@ -107,9 +107,7 @@ fn populate_freq_map_from_samples(samples: &Samples, freq_map: &mut FrequencyMap
     }
 }
 
-pub fn handle_interrupt() {
-    let srr0 = unsafe { STUB_DATA.srr0 };
-
+pub fn handle_interrupt(srr0: u32) {
     SAMPLES.with_cell_mut(|samples| {
         samples.samples[samples.index] = srr0;
         samples.index = (samples.index + 1) % samples.samples.len();

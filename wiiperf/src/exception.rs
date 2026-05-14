@@ -21,7 +21,7 @@ pub(crate) struct StubData {
 }
 
 #[unsafe(no_mangle)]
-pub(crate) static mut STUB_DATA: StubData = StubData {
+pub(crate) static mut _WIIPERF_EH_STUB_DATA: StubData = StubData {
     gprs: [0; 32],
     srr0: 0,
     srr1: 0,
@@ -48,15 +48,16 @@ static DECR_FREQ: u32 = 100_000;
 
 #[unsafe(no_mangle)]
 extern "C" fn __handle_interrupt() {
-    profiler::handle_interrupt(); // Make sure drop code all runs within the handler
+    let srr0 = unsafe { _WIIPERF_EH_STUB_DATA.srr0 };
+    profiler::handle_interrupt(srr0);
     ppc::set_decrementer(DECR_FREQ);
 
     // Jump to exit stub
     unsafe {
         asm!(
             "
-            lis 5, STUB_DATA@h
-            ori 5, 5, STUB_DATA@l
+            lis 5, _WIIPERF_EH_STUB_DATA@h
+            ori 5, 5, _WIIPERF_EH_STUB_DATA@l
             dcbi 0, 5 # we're in virtual mode here, make sure we pick up what we wrote earlier in real mode
 
             # Restore original SRR0/1; put those in SPRG0/1 as they are needed in EXIT_STUB
@@ -77,9 +78,9 @@ extern "C" fn __handle_interrupt() {
             lwz 3, 152(5)
             mtxer 3
 
-            # Set up SRR0 to EXIT_STUB.
-            lis 3, EXIT_STUB@h
-            ori 3, 3, EXIT_STUB@l
+            # Set up SRR0 to exit stub.
+            lis 3, _WIIPERF_EH_EXIT_STUB@h
+            ori 3, 3, _WIIPERF_EH_EXIT_STUB@l
             clrlwi 3, 3, 1
             mtsrr0 3
 
@@ -96,14 +97,14 @@ extern "C" fn __handle_interrupt() {
 
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
-extern "C" fn interrupt_stub() {
+extern "C" fn _wiiperf_eh_entry_stub() {
     naked_asm!(
         "
         # save r3 since we'll use that for stmw to save all other GPRs
         mtsprg0 3
         
-        lis 3, STUB_DATA@h
-        ori 3, 3, STUB_DATA@l
+        lis 3, _WIIPERF_EH_STUB_DATA@h
+        ori 3, 3, _WIIPERF_EH_STUB_DATA@l
 
         # virtual to physical
         clrlwi 3, 3, 1
@@ -150,37 +151,52 @@ extern "C" fn interrupt_stub() {
 
 const DEC_EXC_VIRT: *mut u32 = ptr::with_exposed_provenance_mut(0x80000900);
 
-#[unsafe(no_mangle)]
-static mut EXIT_STUB: [u32; 8] = [0; 8];
+unsafe fn setup_exit_stub() {
+    /// Contains necessary code to continue execution to the previous exception handler after our own exception handler.
+    /// This is called by the end of the interrupt handler.
+    #[unsafe(no_mangle)]
+    static mut _WIIPERF_EH_EXIT_STUB: [u32; 8] = [0; 8];
 
-/// Installs the exception handler.
-pub fn install() {
     unsafe {
         // Series of instructions to restore original SRR0/1. The interrupt exit puts them in SPRG0/1
         // and in order to avoid cloberring GPRs, we do some juggling around GPR<->SPRs.
-        EXIT_STUB[0] = 0x7c7243a6; // mtsprg 2,r3
-        EXIT_STUB[1] = 0x7c7042a6; // mfsprg r3,0
-        EXIT_STUB[2] = 0x7c7a03a6; // mtsrr0 r3
-        EXIT_STUB[3] = 0x7c7142a6; // mfsprg r3,1
-        EXIT_STUB[4] = 0x7c7b03a6; // mtsrr1 r3
-        EXIT_STUB[5] = 0x7c7242a6; // mfsprg r3,2
+        _WIIPERF_EH_EXIT_STUB[0] = 0x7c7243a6; // mtsprg 2,r3
+        _WIIPERF_EH_EXIT_STUB[1] = 0x7c7042a6; // mfsprg r3,0
+        _WIIPERF_EH_EXIT_STUB[2] = 0x7c7a03a6; // mtsrr0 r3
+        _WIIPERF_EH_EXIT_STUB[3] = 0x7c7142a6; // mfsprg r3,1
+        _WIIPERF_EH_EXIT_STUB[4] = 0x7c7b03a6; // mtsrr1 r3
+        _WIIPERF_EH_EXIT_STUB[5] = 0x7c7242a6; // mfsprg r3,2
 
         // Original instruction from the previous exception handler.
-        EXIT_STUB[6] = DEC_EXC_VIRT.read_volatile();
+        _WIIPERF_EH_EXIT_STUB[6] = DEC_EXC_VIRT.read_volatile();
+        // TODO: ^ check if this is a PC-relative instruction and patch it (or warn)?
 
-        // Branch to 0x009004
-        let offset = (DEC_EXC_VIRT.add(1) as isize) - (&raw const EXIT_STUB[7] as isize);
-        EXIT_STUB[7] = assembler::branch(offset, false, false);
+        // Set up relative branch to 0x009004 (one-past the overwritten original instruction)
+        let offset =
+            (DEC_EXC_VIRT.add(1) as isize) - (&raw const _WIIPERF_EH_EXIT_STUB[7] as isize);
+        _WIIPERF_EH_EXIT_STUB[7] = assembler::branch(offset, false, false);
 
         #[expect(static_mut_refs, reason = "short lived shared references")]
         {
-            ppc::flush_dcache(EXIT_STUB.as_ptr().cast(), EXIT_STUB.len() * 4);
-            ppc::invalidate_icache(EXIT_STUB.as_ptr().cast(), EXIT_STUB.len() * 4);
+            ppc::flush_dcache(
+                _WIIPERF_EH_EXIT_STUB.as_ptr().cast(),
+                _WIIPERF_EH_EXIT_STUB.len() * 4,
+            );
+            ppc::invalidate_icache(
+                _WIIPERF_EH_EXIT_STUB.as_ptr().cast(),
+                _WIIPERF_EH_EXIT_STUB.len() * 4,
+            );
         }
     }
+}
+
+/// Installs the exception handler.
+pub fn install() {
+    unsafe { setup_exit_stub() };
 
     // Register the exception handler.
-    let dec_eh_offset = (interrupt_stub as *const () as isize) - DEC_EXC_VIRT.addr() as isize;
+    let dec_eh_offset =
+        (_wiiperf_eh_entry_stub as *const () as isize) - DEC_EXC_VIRT.addr() as isize;
     unsafe { DEC_EXC_VIRT.write_volatile(assembler::branch(dec_eh_offset, false, false)) };
     ppc::flush_dcache(DEC_EXC_VIRT.cast(), 4);
 
