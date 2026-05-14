@@ -10,10 +10,10 @@ use crate::{assembler, profiler};
 
 #[repr(C)]
 pub(crate) struct StubData {
+    pub gprs: [u32; 32],
     pub srr0: u32,
     pub srr1: u32,
-    pub entry_msr: u32,
-    pub gprs: [u32; 32],
+    pub msr: u32,
     pub lr: u32,
     pub ctr: u32,
     pub cr: u32,
@@ -22,10 +22,10 @@ pub(crate) struct StubData {
 
 #[unsafe(no_mangle)]
 pub(crate) static mut STUB_DATA: StubData = StubData {
+    gprs: [0; 32],
     srr0: 0,
     srr1: 0,
-    entry_msr: 0,
-    gprs: [0; 32],
+    msr: 0,
     lr: 0,
     ctr: 0,
     cr: 0,
@@ -34,7 +34,10 @@ pub(crate) static mut STUB_DATA: StubData = StubData {
 
 const _: () = {
     // Make sure to update in asm if this changes.
-    assert!(offset_of!(StubData, gprs) == 12);
+    assert!(offset_of!(StubData, gprs) == 0);
+    assert!(offset_of!(StubData, srr0) == 128);
+    assert!(offset_of!(StubData, srr1) == 132);
+    assert!(offset_of!(StubData, msr) == 136);
     assert!(offset_of!(StubData, lr) == 140);
     assert!(offset_of!(StubData, ctr) == 144);
     assert!(offset_of!(StubData, cr) == 148);
@@ -57,13 +60,13 @@ extern "C" fn __handle_interrupt() {
             dcbi 0, 5 # we're in virtual mode here, make sure we pick up what we wrote earlier in real mode
 
             # Restore original SRR0/1; put those in SPRG0/1 as they are needed in EXIT_STUB
-            lwz 3, 0(5)
+            lwz 3, 128(5)
             mtsprg0 3
-            lwz 3, 4(5)
+            lwz 3, 132(5)
             mtsprg1 3
 
             # Restore SPRs
-            lwz 3, 8(5)
+            lwz 3, 136(5)
             mtsrr1 3
             lwz 3, 140(5)
             mtlr 3
@@ -81,7 +84,7 @@ extern "C" fn __handle_interrupt() {
             mtsrr0 3
 
             # Lastly, restore GPRs
-            lmw 0, 12(5)
+            lmw 0, 0(5)
 
             # NOTE: careful with clobbering GPRs from here on!
 
@@ -106,11 +109,19 @@ extern "C" fn interrupt_stub() {
         clrlwi 3, 3, 1
 
         # save all GPRs EXCEPT r3 (clobbered by STUB_DATA ptr)
-        stmw 0, 12(3)
+        stmw 0, 0(3)
         # save r3 manually (previously loaded into SPRG0)
         # we'll still need the STUB_DATA ptr so we keep it in r3
         mfsprg0 4
-        stw 4, 24(3)
+        stw 4, 12(3)
+        
+        # save original SRR0/1 and entry MSR
+        mfsrr0 4
+        stw 4, 128(3)
+        mfsrr1 4
+        stw 4, 132(3)
+        mfmsr 4
+        stw 4, 136(3)
 
         # save SPRs
         mflr 4
@@ -121,14 +132,6 @@ extern "C" fn interrupt_stub() {
         stw 4, 148(3)
         mfxer 4
         stw 4, 152(3)
-
-        # save original SRR0/1 and entry MSR
-        mfsrr0 4
-        stw 4, 0(3)
-        mfsrr1 4
-        stw 4, 4(3)
-        mfmsr 4
-        stw 4, 8(3)
 
         # load interrupt handler into SRR0
         lis 3, __handle_interrupt@h
