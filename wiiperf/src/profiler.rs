@@ -54,7 +54,7 @@ fn find_fn_start(addr: u32) -> u32 {
 }
 
 fn populate_freq_map_from_samples(samples: &Samples, freq_map: &mut FrequencyMap) {
-    for address in samples.samples {
+    for &address in &samples.samples {
         if address != 0 {
             let fn_addr = find_fn_start(address);
 
@@ -74,7 +74,7 @@ fn populate_freq_map_from_samples(samples: &Samples, freq_map: &mut FrequencyMap
                         count: 1,
                     };
 
-                    if let Err(_) = freq_map.0.try_insert(insert_idx, entry) {
+                    if freq_map.0.try_insert(insert_idx, entry).is_err() {
                         // Freqmap is full. Let's find the entry with the lowest frequency and remove it.
                         // This may result in some inaccuracies if we keep evicting the same entries...
                         let (lowest_idx, _) = freq_map
@@ -123,12 +123,26 @@ pub fn handle_interrupt(srr0: u32) {
 
 pub fn dump_results() {
     FREQ_MAP.with_cell_mut(|freq_map| {
-        // Copy it and sort if by frequency.
-        let mut freq_map = freq_map.0.clone();
-        freq_map.sort_unstable_by_key(|&FreqEntry { count, .. }| Reverse(count));
+        let mut sorted = ArrayVec::<FreqEntry, 10>::new();
+
+        for entry in &freq_map.0 {
+            let index = sorted
+                .binary_search_by_key(&Reverse(entry.count), |&FreqEntry { count, .. }| {
+                    Reverse(count)
+                });
+
+            match index {
+                Ok(index) | Err(index) => {
+                    if sorted.try_insert(index, *entry).is_err() && index < sorted.len() {
+                        sorted[index..].rotate_right(1);
+                        sorted[index] = *entry;
+                    }
+                }
+            }
+        }
 
         println!("Address     Count");
-        for &FreqEntry { addr, count } in freq_map.iter().take(10) {
+        for &FreqEntry { addr, count } in sorted.iter().take(10) {
             println!("{addr:#010x}  {count}");
         }
     });
