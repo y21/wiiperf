@@ -27,9 +27,26 @@ fn main() -> anyhow::Result<()> {
                 target => bail!("unknown build target: {target}"),
             }
         }
+        "gen-header" => gen_header().context("failed to generate headers")?,
         cmd => bail!("unknown command: {cmd}"),
     }
 
+    Ok(())
+}
+
+fn gen_header() -> anyhow::Result<()> {
+    Command::new("cbindgen")
+        .args([
+            "--crate",
+            "wiiperfc",
+            "--lang",
+            "c",
+            "--output",
+            "wiiperfc/capi.h"
+        ])
+        .status()
+        .context("failed to spawn cbindgen")?;
+    
     Ok(())
 }
 
