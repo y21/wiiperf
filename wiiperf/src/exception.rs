@@ -192,13 +192,15 @@ unsafe fn setup_exit_stub() {
 
 /// Installs the exception handler.
 pub fn install() {
-    unsafe { setup_exit_stub() };
+    ppc::without_interrupts(|| {
+        unsafe { setup_exit_stub() };
 
-    // Register the exception handler.
-    let dec_eh_offset =
-        (_wiiperf_eh_entry_stub as *const () as isize) - DEC_EXC_VIRT.addr() as isize;
-    unsafe { DEC_EXC_VIRT.write_volatile(assembler::branch(dec_eh_offset, false, false)) };
-    ppc::flush_dcache(DEC_EXC_VIRT.cast(), 4);
+        // Register the exception handler.
+        let dec_eh_offset =
+            (_wiiperf_eh_entry_stub as *const () as isize) - DEC_EXC_VIRT.addr() as isize;
+        unsafe { DEC_EXC_VIRT.write_volatile(assembler::branch(dec_eh_offset, false, false)) };
+        ppc::flush_dcache(DEC_EXC_VIRT.cast(), 4);
 
-    ppc::set_decrementer(DECR_FREQ);
+        ppc::set_decrementer(DECR_FREQ);
+    });
 }
