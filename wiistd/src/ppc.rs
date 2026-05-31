@@ -155,6 +155,7 @@ impl<T> InterruptLock<T> {
         Self(value)
     }
 
+    #[track_caller]
     fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
         let msr = msr();
         assert!(!msr.interrupts());
@@ -171,6 +172,7 @@ impl<T> InterruptLock<T> {
 }
 
 impl<T> InterruptLock<RefCell<T>> {
+    #[track_caller]
     pub fn with_cell_mut<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         self.with(|cell| {
             let mut borrow = cell.borrow_mut();

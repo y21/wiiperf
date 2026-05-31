@@ -1,7 +1,7 @@
 use core::{cell::RefCell, cmp::Reverse, ptr};
 
 use arrayvec::ArrayVec;
-use wiistd::{ppc::InterruptLock, println, util::ToUsize};
+use wiistd::{ppc::{self, InterruptLock}, println, util::ToUsize};
 
 use crate::assembler;
 
@@ -107,7 +107,7 @@ fn populate_freq_map_from_samples(samples: &Samples, freq_map: &mut FrequencyMap
     }
 }
 
-pub fn handle_interrupt(srr0: u32) {
+pub(crate) fn handle_interrupt(srr0: u32) {
     SAMPLES.with_cell_mut(|samples| {
         samples.samples[samples.index] = srr0;
         samples.index = (samples.index + 1) % samples.samples.len();
@@ -122,28 +122,30 @@ pub fn handle_interrupt(srr0: u32) {
 }
 
 pub fn dump_results() {
-    FREQ_MAP.with_cell_mut(|freq_map| {
-        let mut sorted = ArrayVec::<FreqEntry, 10>::new();
-
-        for entry in &freq_map.0 {
-            let index = sorted
-                .binary_search_by_key(&Reverse(entry.count), |&FreqEntry { count, .. }| {
-                    Reverse(count)
-                });
-
-            match index {
-                Ok(index) | Err(index) => {
-                    if sorted.try_insert(index, *entry).is_err() && index < sorted.len() {
-                        sorted[index..].rotate_right(1);
-                        sorted[index] = *entry;
+    ppc::without_interrupts(|| {
+        FREQ_MAP.with_cell_mut(|freq_map| {
+            let mut sorted = ArrayVec::<FreqEntry, 10>::new();
+    
+            for entry in &freq_map.0 {
+                let index = sorted
+                    .binary_search_by_key(&Reverse(entry.count), |&FreqEntry { count, .. }| {
+                        Reverse(count)
+                    });
+    
+                match index {
+                    Ok(index) | Err(index) => {
+                        if sorted.try_insert(index, *entry).is_err() && index < sorted.len() {
+                            sorted[index..].rotate_right(1);
+                            sorted[index] = *entry;
+                        }
                     }
                 }
             }
-        }
-
-        println!("Address     Count");
-        for &FreqEntry { addr, count } in sorted.iter().take(10) {
-            println!("{addr:#010x}  {count}");
-        }
+    
+            println!("Address     Count");
+            for &FreqEntry { addr, count } in sorted.iter().take(10) {
+                println!("{addr:#010x}  {count}");
+            }
+        });
     });
 }
